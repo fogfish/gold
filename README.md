@@ -1,0 +1,2 @@
+# gold
+Golang Linked-Data
