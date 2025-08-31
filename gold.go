@@ -11,37 +11,19 @@
 package gold
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
 )
 
-// Compact IRI (CURIE) is universal identifier for a resource, defined as
-//
-//	{schema}:{id}
-//
-// where `schema“ is a namespace prefix and `id` is a local identifier. The schema
-// is always derived from the type of the resource T, making it safe at compiletime.
-//
-// It is recommended to derive schema from the class itself:
-//
-//	type MyClass struct {
-//	  ID gold.IRI[MyClass] `json:"id"`
-//	}
-//
-// Locally, IRI is ALWAY kept as {id} and type annotation, formatting into CURIE
-// excuted at serialization.
-type IRI[T any] string
-
-// Schema returns a CURIE schema for the type T is derived from the type name
+// Schema returns a schema for the type T is derived from the type name
 // or type registry. It is recommended to use pure types rather than containers.
 // For any complex types use registry:
 //
 //	gold.Register[[]MyClass]("seq")
 //	gold.Schema([]MyClass)()
 func Schema[T any]() string {
-	class := reflect.TypeOf(new(T)).Elem()
+	class := reflect.TypeOf((*T)(nil)).Elem()
 	if class.Kind() == reflect.Ptr {
 		class = class.Elem()
 	}
@@ -65,66 +47,9 @@ func Schema[T any]() string {
 		panic(fmt.Errorf("gold: unknown schema for %q", cat))
 	}
 
-	return strings.ToLower(cat)
-}
-
-// Convert a local string identifier to compact IRI.
-// It returns id string annotated with a type.
-func ToIRI[T any](id string) IRI[T] {
-	return IRI[T](id)
-}
-
-// Convert IRI string into a compact IRI type. It fails schema prefix is
-// different than one assotiated with type T.
-func AsIRI[T any](iri string) (IRI[T], error) {
-	schema := Schema[T]()
-	if !strings.HasPrefix(iri, schema+":") {
-		return "", fmt.Errorf("gold: invalid IRI %q for schema %q", iri, schema)
-	}
-
-	if len(iri) < len(schema)+1 {
-		return "", fmt.Errorf("gold: invalid IRI %q for schema %q", iri, schema)
-	}
-
-	return IRI[T](iri[len(schema)+1:]), nil
-}
-
-// Converts IRI to fully qualified CURIE as a string type.
-func (iri IRI[T]) String() string {
-	schema := Schema[T]()
-	return fmt.Sprintf("%s:%s", schema, string(iri))
-}
-
-// Encodes IRI into JSON as a CURIE string.
-func (iri IRI[T]) MarshalJSON() ([]byte, error) {
-	return json.Marshal(iri.String())
-}
-
-// Decodes IRI from JSON as a CURIE string.
-func (iri *IRI[T]) UnmarshalJSON(b []byte) (err error) {
-	var s string
-	if err := json.Unmarshal(b, &s); err != nil {
-		return err
-	}
-
-	*iri, err = AsIRI[T](s)
-	return
-}
-
-// Expands IRI into absolute URI using the registered prefix for the type T.
-func URI[T any](iri IRI[T]) string {
-	class := reflect.TypeOf(new(T)).Elem()
-	if class.Kind() == reflect.Ptr {
-		class = class.Elem()
-	}
-	name := class.String()
-
-	prefix, ok := uriRegistry.Load(name)
-	if !ok {
-		return iri.String()
-	}
-
-	return prefix.(string) + ":" + string(iri)
+	lcat := strings.ToLower(cat)
+	schemaRegistry.Store(name, lcat)
+	return lcat
 }
 
 // IRIs are not hierarchical in the linked-data sense. They are flat, typed
@@ -157,4 +82,9 @@ func URI[T any](iri IRI[T]) string {
 type Imply[A, B any] struct {
 	Domain IRI[A] `json:"domain"`
 	Range  IRI[B] `json:"range"`
+}
+
+// Create Imply statement from two IRIs.
+func ImplyFrom[A, B any](a IRI[A], b IRI[B]) Imply[A, B] {
+	return Imply[A, B]{Domain: a, Range: b}
 }

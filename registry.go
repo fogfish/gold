@@ -14,13 +14,10 @@ import (
 	"sync"
 )
 
-var (
-	schemaRegistry sync.Map
-	uriRegistry    sync.Map
-)
+var schemaRegistry sync.Map
 
-func Register[T any](schema string) {
-	class := reflect.TypeOf(new(T)).Elem()
+func Register[T any](schema string) string {
+	class := reflect.TypeOf((*T)(nil)).Elem()
 	if class.Kind() == reflect.Ptr {
 		class = class.Elem()
 	}
@@ -29,16 +26,6 @@ func Register[T any](schema string) {
 	if s, loaded := schemaRegistry.LoadOrStore(name, schema); loaded {
 		panic(fmt.Sprintf("gold: registering duplicate types for %q: %s != %s", name, s, schema))
 	}
-}
 
-func RegisterURI[T any](prefix string) {
-	class := reflect.TypeOf(new(T)).Elem()
-	if class.Kind() == reflect.Ptr {
-		class = class.Elem()
-	}
-	name := class.String()
-
-	if s, loaded := uriRegistry.LoadOrStore(name, prefix); loaded {
-		panic(fmt.Sprintf("gold: registering duplicate URIs for %q: %s != %s", name, s, prefix))
-	}
+	return schema
 }
