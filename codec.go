@@ -178,13 +178,18 @@ func (c sortkey[T, A, B]) Decode(s string, obj *T) error {
 	}
 
 	seq := strings.SplitN(s, "|", 2)
-	if len(seq) != 2 {
+	if len(seq) != 1 {
 		return fmt.Errorf("gold: invalid schema for %q", s)
 	}
 
 	a, err := AsIRI[A](seq[0])
 	if err != nil {
 		return fmt.Errorf("gold: invalid IRI for %q: %w", seq[0], err)
+	}
+
+	if len(seq) == 1 {
+		c.shape.Put(obj, a, ToIRI[B](""))
+		return nil
 	}
 
 	b, err := AsIRI[B](seq[1])
