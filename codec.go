@@ -115,10 +115,63 @@ func (c hashkey[T, A, B]) Encode(obj *T) (string, error) {
 	if len(a) == 0 || len(b) == 0 {
 		return "", nil
 	}
+
 	return fmt.Sprintf("%s|%s", a, b), nil
 }
 
 func (c hashkey[T, A, B]) Decode(s string, obj *T) error {
+	if len(s) == 0 {
+		c.shape.Put(obj, ToIRI[A](""), ToIRI[B](""))
+		return nil
+	}
+
+	seq := strings.SplitN(s, "|", 2)
+	if len(seq) != 2 {
+		return fmt.Errorf("gold: invalid schema for %q", s)
+	}
+
+	a, err := AsIRI[A](seq[0])
+	if err != nil {
+		return fmt.Errorf("gold: invalid IRI for %q: %w", seq[0], err)
+	}
+
+	b, err := AsIRI[B](seq[1])
+	if err != nil {
+		return fmt.Errorf("gold: invalid IRI for %q: %w", seq[1], err)
+	}
+
+	c.shape.Put(obj, a, b)
+	return nil
+}
+
+//------------------------------------------------------------------------------
+
+type sortkey[T, A, B any] struct {
+	schema string
+	shape  optics.Lens2[T, IRI[A], IRI[B]]
+}
+
+func SortKey[T, A, B any]() Codec[T] {
+	return sortkey[T, A, B]{
+		schema: Schema[T](),
+		shape:  optics.ForShape2[T, IRI[A], IRI[B]](),
+	}
+}
+
+func (c sortkey[T, A, B]) Encode(obj *T) (string, error) {
+	a, b := c.shape.Get(obj)
+	if len(a) == 0 && len(b) == 0 {
+		return "", nil
+	}
+
+	if len(b) == 0 {
+		return string(a), nil
+	}
+
+	return fmt.Sprintf("%s|%s", a, b), nil
+}
+
+func (c sortkey[T, A, B]) Decode(s string, obj *T) error {
 	if len(s) == 0 {
 		c.shape.Put(obj, ToIRI[A](""), ToIRI[B](""))
 		return nil
