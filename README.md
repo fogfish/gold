@@ -80,13 +80,84 @@ relationship := gold.ImplyFrom(
 )
 ```
 
+`Imply` is a **string**, not a struct. Its text form is `{Domain}|{Range}`:
+
+| Domain | Range | Text                |
+| ------ | ----- | ------------------- |
+| empty  | empty | `""`                |
+| set    | empty | `"user:alice\|"`    |
+| set    | set   | `"user:alice\|blog:b"` |
+| empty  | set   | error               |
+
+`Imply` implements `encoding.TextMarshaler` / `encoding.TextUnmarshaler`, validating
+schemas on both directions. JSON therefore encodes it as a string `"user:a|blog:b"`.
+
+> **Breaking change in v0.1.0:** `Imply` used to be encoded in JSON as `{"domain":…,"range":…}`.
+
+### Text marshaling
+
+`IRI[T]` and `URN[N, T]` implement `encoding.TextMarshaler` and `encoding.TextUnmarshaler`
+(the library has no storage dependencies, any codec honouring these interfaces works, e.g. AWS `attributevalue`
+with `UseEncodingMarshalers`).
+
+* Decoding validates the schema: reading `blog:x` into `IRI[User]` fails.
+* Encoding is strict for `IRI`: `IRI[User]("alice")` (forgotten `.Norm()`) fails instead of persisting a wrong identity.
+* An empty value is encoded and decoded as `""`, including JSON (**changed in v0.1.0**: an empty JSON IRI is accepted).
+
+### Composite keys and DynamoDB
+
+```go
+// ✅ alias keeps gold's methods, stored as a string
+type ThreadID = gold.Imply[Account, Story]
+
+// ⚠️ a defined type drops methods. If a defined type is needed (e.g. to add domain methods),
+// forward the text methods explicitly:
+type ThreadKey gold.Imply[Account, Story]
+
+func (k ThreadKey) MarshalText() ([]byte, error)  { return gold.Imply[Account, Story](k).MarshalText() }
+func (k *ThreadKey) UnmarshalText(b []byte) error { return (*gold.Imply[Account, Story])(k).UnmarshalText(b) }
+```
+
+#### Prefix queries
+
+`gold.Any[T]()` is the schema-only IRI `"{schema}:"`. Use it to select every identity of a class
+with `begins_with`:
+
+```go
+gold.Any[User]()                            // "user:"
+gold.ImplyFrom(job, gold.Any[UID]())        // "job:1|uid:"
+```
+
+A partial `SortKey` (domain only) is encoded with a trailing separator `"job:1|"`, so a prefix
+query for job `1` does not match `job:10|…` (**changed in v0.1.0**). Decoding still accepts the legacy `"job:1"`.
+`SortKey` output always equals `Imply.MarshalText`.
+
 ### Schema Registry
 
-Schemas are derived automatically, but can be customized:
+Schemas are derived automatically (lower-cased type name), but can be customized:
 
 ```go
 // For complex types, register custom schemas
 gold.Register[[]MyType]("my-type-collection")
+```
+
+The registry is keyed by the full type identity (import path + name), so same-named types in
+different packages do not collide.
+
+#### Schema stability
+
+Renaming a Go type silently changes a derived schema, and therefore stored keys.
+Pin persisted schemas in a golden test using `gold.Schemas()`, which returns a copy of every
+schema derived or registered so far:
+
+```go
+func TestSchemas(t *testing.T) {
+    _ = gold.Schema[User]() // make sure the schema is derived
+    got := gold.Schemas()
+    if got["example.com/app/domain.User"] != "user" {
+        t.Fatal("persisted schema of User has changed")
+    }
+}
 ```
 
 ### Type-Safe URL Templates

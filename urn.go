@@ -179,3 +179,25 @@ func (urn *URN[N, T]) UnmarshalJSON(b []byte) (err error) {
 	*urn, err = AsURN[N, T](s)
 	return
 }
+
+// Encodes URN as text.
+func (urn URN[N, T]) MarshalText() ([]byte, error) {
+	return []byte(urn), nil
+}
+
+// Decodes URN from text. An empty string is decoded into the zero value,
+// otherwise the value is validated against the schema of the type N, T.
+func (urn *URN[N, T]) UnmarshalText(b []byte) error {
+	if len(b) == 0 {
+		*urn = ""
+		return nil
+	}
+
+	v, err := AsURN[N, T](string(b))
+	if err != nil {
+		return err
+	}
+
+	*urn = v
+	return nil
+}

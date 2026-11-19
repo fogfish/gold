@@ -10,6 +10,7 @@ package gold_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/fogfish/gold"
@@ -281,7 +282,7 @@ func TestSortKey(t *testing.T) {
 		s, err := codec.Encode(&obj)
 		it.Then(t).Should(
 			it.Nil(err),
-			it.Equal(s, "codeca:x"),
+			it.Equal(s, "codeca:x|"),
 		)
 	})
 
@@ -314,6 +315,41 @@ func TestSortKey(t *testing.T) {
 			it.Nil(err),
 			it.Equal(obj.A, gold.ToIRI[codecA]("x")),
 			it.Equal(obj.B, gold.IRI[codecB]("")),
+		)
+	})
+
+	t.Run("DecodeOnlyAWithSeparator", func(t *testing.T) {
+		obj := codecPair{}
+		err := codec.Decode("codeca:x|", &obj)
+		it.Then(t).Should(
+			it.Nil(err),
+			it.Equal(obj.A, gold.ToIRI[codecA]("x")),
+			it.Equal(obj.B, gold.IRI[codecB]("")),
+		)
+	})
+
+	t.Run("EncodeMatchesImplyText", func(t *testing.T) {
+		for _, obj := range []codecPair{
+			{},
+			{A: gold.ToIRI[codecA]("x")},
+			{A: gold.ToIRI[codecA]("x"), B: gold.ToIRI[codecB]("y")},
+			{A: gold.ToIRI[codecA]("x"), B: gold.Any[codecB]()},
+		} {
+			s, err := codec.Encode(&obj)
+			b, errx := gold.ImplyFrom(obj.A, obj.B).MarshalText()
+			it.Then(t).Should(
+				it.Nil(err),
+				it.Nil(errx),
+				it.Equal(s, string(b)),
+			)
+		}
+	})
+
+	t.Run("PrefixSafe", func(t *testing.T) {
+		p, _ := codec.Encode(&codecPair{A: gold.ToIRI[codecA]("1")})
+		k, _ := codec.Encode(&codecPair{A: gold.ToIRI[codecA]("10"), B: gold.ToIRI[codecB]("y")})
+		it.Then(t).ShouldNot(
+			it.True(strings.HasPrefix(k, p)),
 		)
 	})
 
