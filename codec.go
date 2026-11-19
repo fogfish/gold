@@ -164,10 +164,8 @@ func (c sortkey[T, A, B]) Encode(obj *T) (string, error) {
 		return "", nil
 	}
 
-	if len(b) == 0 {
-		return string(a), nil
-	}
-
+	// trailing separator makes partial key prefix-safe, e.g. "job:1|" does not
+	// match "job:10|uid:x" when used with begins_with queries.
 	return fmt.Sprintf("%s|%s", a, b), nil
 }
 
@@ -184,7 +182,8 @@ func (c sortkey[T, A, B]) Decode(s string, obj *T) error {
 		return fmt.Errorf("gold: invalid IRI for %q: %w", seq[0], err)
 	}
 
-	if len(seq) == 1 {
+	// legacy "a" (no separator) and "a|" are domain-only keys
+	if len(seq) == 1 || len(seq[1]) == 0 {
 		c.shape.Put(obj, a, ToIRI[B](""))
 		return nil
 	}

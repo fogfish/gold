@@ -11,6 +11,7 @@
 package gold
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -27,7 +28,7 @@ func Schema[T any]() string {
 	if class.Kind() == reflect.Ptr {
 		class = class.Elem()
 	}
-	name := class.String()
+	name := typeKey(class)
 
 	schema, ok := schemaRegistry.Load(name)
 	if ok {
@@ -78,7 +79,12 @@ func Schema[T any]() string {
 //
 //	user:Alice/schema:creator/image:Selfie
 //
-//	type Creator gold.Imply[Image, User]
+//	type Creator = gold.Imply[Image, User]
+//
+// Imply is a text type, it is serialised as a string "{Domain}|{Range}"
+// (e.g. "user:alice|image:selfie"), including JSON and DynamoDB attributevalue
+// codecs. Use a type alias to keep the methods. A defined type drops them and
+// requires explicit forwarding of MarshalText and UnmarshalText.
 type Imply[A, B any] struct {
 	Domain IRI[A] `json:"domain"`
 	Range  IRI[B] `json:"range"`
@@ -87,4 +93,81 @@ type Imply[A, B any] struct {
 // Create Imply statement from two IRIs.
 func ImplyFrom[A, B any](a IRI[A], b IRI[B]) Imply[A, B] {
 	return Imply[A, B]{Domain: a, Range: b}
+}
+
+// Separator between Domain and Range in the text form of Imply.
+const implySep = "|"
+
+// Encodes Imply as text "{Domain}|{Range}".
+//
+//	empty, empty → ""
+//	set,   empty → "{Domain}|"
+//	set,   set   → "{Domain}|{Range}"
+//
+// Empty domain with non-empty range, domain with "|" and IRIs without
+// the schema prefix are errors.
+func (i Imply[A, B]) MarshalText() ([]byte, error) {
+	if i.Domain.IsEmpty() {
+		if i.Range.IsEmpty() {
+			return []byte{}, nil
+		}
+		return nil, errors.New("gold: imply with empty domain")
+	}
+
+	if strings.Contains(string(i.Domain), implySep) {
+		return nil, fmt.Errorf("gold: imply domain must not contain %q", implySep)
+	}
+
+	d, err := i.Domain.MarshalText()
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := i.Range.MarshalText()
+	if err != nil {
+		return nil, err
+	}
+
+	return []byte(string(d) + implySep + string(r)), nil
+}
+
+// Decodes Imply from text "{Domain}|{Range}", splitting on the first separator.
+func (i *Imply[A, B]) UnmarshalText(b []byte) error {
+	if len(b) == 0 {
+		*i = Imply[A, B]{}
+		return nil
+	}
+
+	seq := strings.SplitN(string(b), implySep, 2)
+	if len(seq) != 2 {
+		return fmt.Errorf("gold: invalid imply %q, separator %q is missing", string(b), implySep)
+	}
+
+	if len(seq[0]) == 0 {
+		return errors.New("gold: imply with empty domain")
+	}
+
+	d, err := AsIRI[A](seq[0])
+	if err != nil {
+		return err
+	}
+
+	var r IRI[B]
+	if len(seq[1]) != 0 {
+		if r, err = AsIRI[B](seq[1]); err != nil {
+			return err
+		}
+	}
+
+	*i = Imply[A, B]{Domain: d, Range: r}
+	return nil
+}
+
+// String returns text form of Imply, an invalid value yields an empty string.
+func (i Imply[A, B]) String() string {
+	b, err := i.MarshalText()
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }

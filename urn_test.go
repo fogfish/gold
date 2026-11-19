@@ -9,6 +9,7 @@
 package gold_test
 
 import (
+	"encoding"
 	"testing"
 
 	"github.com/fogfish/gold"
@@ -256,6 +257,52 @@ func TestURN(t *testing.T) {
 		// Test malformed JSON
 		if err := urn.UnmarshalJSON([]byte(`invalid`)); err == nil {
 			t.Error("UnmarshalJSON with malformed JSON should return an error")
+		}
+	})
+}
+
+func TestURNText(t *testing.T) {
+	type N struct{}
+	type T struct{}
+	type X struct{}
+	type U = gold.URN[N, T]
+
+	var (
+		_ encoding.TextMarshaler   = U("")
+		_ encoding.TextUnmarshaler = (*U)(nil)
+	)
+
+	for _, in := range []U{"urn:n:t", "urn:n:t:foo:bar"} {
+		b, err := in.MarshalText()
+		if err != nil || string(b) != string(in) {
+			t.Errorf("(%q).MarshalText() = %q, %v", in, b, err)
+		}
+		var out U
+		if err := out.UnmarshalText(b); err != nil || out != in {
+			t.Errorf("round trip %q -> %q, %v", in, out, err)
+		}
+	}
+
+	t.Run("Empty", func(t *testing.T) {
+		out := U("urn:n:t:old")
+		if err := out.UnmarshalText(nil); err != nil || out != "" {
+			t.Errorf("UnmarshalText(\"\") = %q, %v", out, err)
+		}
+		if b, err := U("").MarshalText(); err != nil || len(b) != 0 {
+			t.Errorf("MarshalText = %q, %v", b, err)
+		}
+	})
+
+	t.Run("WrongSchema", func(t *testing.T) {
+		var out U
+		for _, in := range []string{"foo", "urn:n:x:foo", "urn:x:t:foo"} {
+			if err := out.UnmarshalText([]byte(in)); err == nil {
+				t.Errorf("UnmarshalText(%q) should fail", in)
+			}
+		}
+		var x gold.URN[N, X]
+		if err := x.UnmarshalText([]byte("urn:n:t:foo")); err == nil {
+			t.Error("other schema should be rejected")
 		}
 	})
 }

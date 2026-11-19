@@ -64,6 +64,12 @@ func AsIRI[T any](iri string) (IRI[T], error) {
 	return IRI[T](iri), nil
 }
 
+// Any returns the schema-only IRI "{schema}:", used as a begins_with prefix
+// to select every identity of class T.
+//
+//	gold.Any[User]() // "user:"
+func Any[T any]() IRI[T] { return IRI[T](Schema[T]() + ":") }
+
 // Normalize IRI to a compact IRI type.
 // Use it as constructor for IRI types aliases.
 //
@@ -87,8 +93,12 @@ func (iri *IRI[T]) IsValid() bool { return iri.Validate() == nil }
 func (iri IRI[T]) IsEmpty() bool { return len(iri) == 0 }
 
 // Reference returns a local identifier of the IRI, without schema prefix.
+// It returns an empty string for the schema-only IRI (see Any).
 func (iri IRI[T]) Reference() string {
 	schema := Schema[T]()
+	if len(iri) == len(schema)+1 && strings.HasPrefix(string(iri), schema+":") {
+		return ""
+	}
 	if len(iri) <= len(schema)+1 {
 		panic(fmt.Errorf("gold: invalid IRI %q for schema %q", iri, schema))
 	}
@@ -108,6 +118,37 @@ func (iri *IRI[T]) UnmarshalJSON(b []byte) (err error) {
 		return err
 	}
 
-	*iri, err = AsIRI[T](s)
-	return
+	return iri.UnmarshalText([]byte(s))
+}
+
+// Encodes IRI as text. Empty IRI is encoded as an empty string, otherwise
+// the value must carry the schema prefix of the type T. It is strict on write,
+// a forgotten Norm() fails instead of silently persisting an invalid identity.
+func (iri IRI[T]) MarshalText() ([]byte, error) {
+	if len(iri) == 0 {
+		return []byte{}, nil
+	}
+
+	if _, err := AsIRI[T](string(iri)); err != nil {
+		return nil, err
+	}
+
+	return []byte(iri), nil
+}
+
+// Decodes IRI from text. An empty string is decoded into an empty IRI,
+// otherwise the value is validated against the schema of the type T.
+func (iri *IRI[T]) UnmarshalText(b []byte) error {
+	if len(b) == 0 {
+		*iri = ""
+		return nil
+	}
+
+	v, err := AsIRI[T](string(b))
+	if err != nil {
+		return err
+	}
+
+	*iri = v
+	return nil
 }
